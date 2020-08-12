@@ -1,3 +1,7 @@
+# THIS IS A FORK!
+
+This is [Coptic Scriptorium](https://github.com/CopticScriptorium)'s fork of Stanza. We use Stanza's dependency parser in a lightly modified form.
+
 <div align="center"><img src="https://github.com/stanfordnlp/stanza/raw/dev/images/stanza-logo.png" height="100px"/></div>
 
 <h2 align="center">Stanza: A Python NLP Library for Many Human Languages</h2>
