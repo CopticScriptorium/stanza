@@ -40,8 +40,8 @@ def search(args):
         'batch_size': scope.int(hp.quniform('batch_size', 1500, 4500, 1500)),
         'transformed_dim': scope.int(hp.quniform('transformed_dim', 50, 125, 25)),
         'num_layers': scope.int(hp.quniform('num_layers', 3, 4, 1)),
-        'dropout': scope.int(hp.quniform('dropout', 0.3, 0.6, 0.1)),
-        'word_dropout': scope.int(hp.quniform('word_dropout', 0.3, 0.6, 0.1)),
+        'dropout': scope.float(hp.quniform('dropout', 0.3, 0.6, 0.1)),
+        'word_dropout': scope.float(hp.quniform('word_dropout', 0.3, 0.6, 0.1)),
         'no_char': hp.choice('no_char', [True, False]),
         'no_pretrain': hp.choice('no_pretrain', [True, False]),
     }
@@ -53,7 +53,7 @@ def search(args):
         return {'loss': 1 - trial(new_args), 'status': STATUS_OK}
 
     trials = Trials()
-    best = fmin(f, space, algo=tpe.suggest, max_evals=200, trials=trials)
+    best = fmin(f, space, algo=tpe.suggest, max_evals=100, trials=trials)
     print("\nBest parameters:\n" + 30 * "=")
     print(best)
 
@@ -84,6 +84,7 @@ def main(mode):
     args['tag_emb_dim'] = 5
     args['batch_size'] = 5000
     args['max_steps'] = 6000
+    #args['cuda'] = True
 
     if mode == 'train':
         train(args.copy())
