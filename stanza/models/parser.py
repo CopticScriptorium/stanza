@@ -20,6 +20,8 @@ import random
 import torch
 from torch import nn, optim
 
+import depedit
+
 from stanza.models.depparse.data import DataLoader
 from stanza.models.depparse.trainer import Trainer
 from stanza.models.depparse import scorer
@@ -249,11 +251,19 @@ def evaluate(args):
     batch.doc.set([HEAD, DEPREL], [y for x in preds for y in x])
     CoNLL.dict2conll(batch.doc.to_dict(), system_pred_file)
 
+    # depedit postprocessing
+    #d = depedit.DepEdit(os.path.join('stanza_data', 'depedit', 'postprocess_parser.ini'))
+    #with open(system_pred_file, 'r') as f:
+    #    ps = f.read()
+    #with open(system_pred_file, 'w') as f:
+    #    f.write(d.run_depedit(ps))
+
     if gold_file is not None:
         _, _, score = scorer.score(system_pred_file, gold_file)
 
         print("Parser score:")
         print("{} {:.2f}".format(args['shorthand'], score*100))
+        return score
 
 if __name__ == '__main__':
     main()
