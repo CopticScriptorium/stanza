@@ -36,9 +36,8 @@ def search(args):
     from hyperopt import hp, fmin, Trials, STATUS_OK, tpe
     from hyperopt.pyll import scope
     space = {
-        'char_emb_dim': scope.int(hp.quniform('char_emb_dim', 25, 100, 25)),
-        'tag_emb_dim': scope.int(hp.quniform('tag_emb_dim', 5, 25, 5)),
-        'batch_size': scope.int(hp.quniform('batch_size', 1500, 3000, 4500)),
+        'char_emb_dim': scope.int(hp.quniform('char_emb_dim', 25, 75, 25)),
+        'batch_size': scope.int(hp.quniform('batch_size', 1500, 4500, 1500)),
         'transformed_dim': scope.int(hp.quniform('transformed_dim', 50, 125, 25)),
         'num_layers': scope.int(hp.quniform('num_layers', 3, 4, 1)),
         'dropout': scope.int(hp.quniform('dropout', 0.3, 0.6, 0.1)),
@@ -58,10 +57,20 @@ def search(args):
     print("\nBest parameters:\n" + 30 * "=")
     print(best)
 
-    print("\nTrials:\n")
-    print("LAS\tparams\tall trial info")
+    trials = [t for t in trials]
+    print("\n\nRaw trial output")
     for tt in trials:
-        print('\t'.join([str(1-tt['result']['loss']), str(tt['misc']['vals']), str(tt)]))
+        print(tt)
+
+    print("\n\n")
+
+    print("\nTrials:\n")
+    for i, tt in enumerate(trials):
+        if i == 0:
+            print("LAS\t" + "\t".join(list(tt['misc']['vals'].keys())))
+        vals = map(lambda x:str(x[0]), tt['misc']['vals'].values())
+        las = str(1-tt['result']['loss'])
+        print('\t'.join([las, "\t".join(vals)]))
 
 
 def main(mode):
@@ -72,9 +81,9 @@ def main(mode):
     args['tag_type'] = "gold"
     args['word_emb_dim'] = 50
     args['char_emb_dim'] = 50
-    args['tag_emb_dim'] = 10
+    args['tag_emb_dim'] = 5
     args['batch_size'] = 5000
-    args['max_steps'] = 3000
+    args['max_steps'] = 6000
 
     if mode == 'train':
         train(args.copy())
