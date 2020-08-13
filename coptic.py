@@ -40,7 +40,7 @@ def search(args):
         'tag_emb_dim': scope.int(hp.quniform('tag_emb_dim', 5, 25, 5)),
         'batch_size': scope.int(hp.quniform('batch_size', 1500, 3000, 4500)),
         'transformed_dim': scope.int(hp.quniform('transformed_dim', 50, 125, 25)),
-        'num_layers': scope.int(hp.quniform('num_layers', 2, 4, 1)),
+        'num_layers': scope.int(hp.quniform('num_layers', 3, 4, 1)),
         'dropout': scope.int(hp.quniform('dropout', 0.3, 0.6, 0.1)),
         'word_dropout': scope.int(hp.quniform('word_dropout', 0.3, 0.6, 0.1)),
         'no_char': hp.choice('no_char', [True, False]),
@@ -50,15 +50,18 @@ def search(args):
     def f(opted_args):
         new_args = args.copy()
         new_args.update(opted_args)
-        print("Trial with args:", new_args)
-        print(new_args)
+        print("Trial with args:", opted_args)
         return {'loss': 1 - trial(new_args), 'status': STATUS_OK}
 
     trials = Trials()
-    best = fmin(f, space, algo=tpe.suggest, max_evals=100, trials=trials)
+    best = fmin(f, space, algo=tpe.suggest, max_evals=200, trials=trials)
     print("\nBest parameters:\n" + 30 * "=")
     print(best)
 
+    print("\nTrials:\n")
+    print("LAS\tparams\tall trial info")
+    for tt in trials:
+        print('\t'.join([str(1-tt['result']['loss']), str(tt['misc']['vals']), str(tt)]))
 
 
 def main(mode):
