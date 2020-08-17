@@ -33,19 +33,18 @@ def trial(args):
 
 
 def search(args):
+    # most trials seem to converge by 6000
+    args['max_steps'] = 6000
+
     from hyperopt import hp, fmin, Trials, STATUS_OK, tpe
     from hyperopt.pyll import scope
-    space = {
-        'char_emb_dim': scope.int(hp.quniform('char_emb_dim', 25, 75, 25)),
-        'batch_size': scope.int(hp.quniform('batch_size', 1500, 4500, 1500)),
-        'transformed_dim': scope.int(hp.quniform('transformed_dim', 50, 125, 25)),
-        'num_layers': scope.int(hp.quniform('num_layers', 3, 4, 1)),
-        'dropout': scope.float(hp.quniform('dropout', 0.3, 0.6, 0.1)),
-        'word_dropout': scope.float(hp.quniform('word_dropout', 0.3, 0.6, 0.1)),
-        'no_char': hp.choice('no_char', [True, False]),
-        'no_pretrain': hp.choice('no_pretrain', [True, False]),
-    }
 
+    # params to search for
+    space = {
+        'optim': hp.choice('optim', ['sgd', 'adagrad', 'adam', 'adamax']),
+        'hidden_dim': scope.int(hp.quniform('hidden_dim', 150, 400, 50)),
+    }
+    # f to minimize
     def f(opted_args):
         new_args = args.copy()
         new_args.update(opted_args)
@@ -53,7 +52,7 @@ def search(args):
         return {'loss': 1 - trial(new_args), 'status': STATUS_OK}
 
     trials = Trials()
-    best = fmin(f, space, algo=tpe.suggest, max_evals=100, trials=trials)
+    best = fmin(f, space, algo=tpe.suggest, max_evals=200, trials=trials)
     print("\nBest parameters:\n" + 30 * "=")
     print(best)
 
@@ -79,12 +78,19 @@ def main(mode):
     args['shorthand'] = "cop_scriptorium"
     args['treebank'] = "cop_scriptorium"
     args['tag_type'] = "gold"
+
+    # parameters we're pretty sure about
     args['word_emb_dim'] = 50
     args['char_emb_dim'] = 50
     args['tag_emb_dim'] = 5
-    args['batch_size'] = 5000
-    args['max_steps'] = 6000
-    #args['cuda'] = True
+    args['batch_size'] = 1500
+    args['num_layers'] = 3
+    args['word_dropout'] = 0.3
+    args['dropout'] = 0.5
+
+    # idk yet
+    args['char_hidden_dim'] = 100
+    args['deep_biaff_hidden_dim'] = 250
 
     if mode == 'train':
         train(args.copy())
