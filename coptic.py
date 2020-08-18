@@ -87,10 +87,9 @@ def main(mode):
     args['num_layers'] = 3
     args['word_dropout'] = 0.3
     args['dropout'] = 0.5
-
-    # idk yet
-    args['char_hidden_dim'] = 100
-    args['deep_biaff_hidden_dim'] = 250
+    args['char_hidden_dim'] = 250
+    args['deep_biaff_hidden_dim'] = 200
+    args['hidden_dim'] = 300
 
     if mode == 'train':
         train(args.copy())
