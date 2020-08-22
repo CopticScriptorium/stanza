@@ -28,6 +28,7 @@ DEFAULT_PARAMS = {
     # word embeddings
     'pretrain': True,
     'wordvec_dir': j(PACKAGE_BASE_DIR, 'stanza_data', 'wordvec'),
+    'wordvec_file': j(PACKAGE_BASE_DIR, 'stanza_data', 'wordvec', 'word2vec', 'Coptic', 'coptic_50d.vec.xz'),
     'word_emb_dim': 50,
     'word_dropout': 0.3,
 
@@ -36,7 +37,7 @@ DEFAULT_PARAMS = {
     'char_hidden_dim': 200,
     'char_emb_dim': 50,
     'char_num_layers': 1,
-    'char_rec_dropout': 0.3,
+    'char_rec_dropout': 0, # very slow!
 
     # pos tags
     'tag_emb_dim': 5,
@@ -46,23 +47,23 @@ DEFAULT_PARAMS = {
     'hidden_dim': 300,
     'deep_biaff_hidden_dim': 200,
     'composite_deep_biaff_hidden_dim': 100,
-    'transformed_dim': 125,
+    'transformed_dim': 75,
     'num_layers': 3,
     'pretrain_max_vocab': 250000,
-    'dropout': 0.4,
-    'rec_dropout': 0,
+    'dropout': 0.5,
+    'rec_dropout': 0, # very slow!
     'linearization': True,
     'distance': True,
 
     # training
     'sample_train': 1.0,
     'optim': 'adam',
-    'lr': 0.002,
+    'lr': 0.001,
     'beta2': 0.95,
     'max_steps': 10000,
     'eval_interval': 100,
-    'max_steps_before_stop': 3000,
-    'batch_size': 1500,
+    'max_steps_before_stop': 2000,
+    'batch_size': 1000,
     'max_grad_norm': 1.0,
     'log_step': 20,
 
@@ -71,15 +72,16 @@ DEFAULT_PARAMS = {
     'eval_file': None,
     'gold_file': None,
     'mode': None,
-    'wordvec_file': None,
 }
 
+# preprocessor
 PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "stanza_data", "depedit", "add_ud_and_flat_morph.ini"),
                                options=type('', (), {"quiet": True, "kill": "both"}))
+# load foreign words
 with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'lang_lexicon.tab'), 'r') as f:
     FOREIGN_WORDS = [x.split('\t')[0] for x in f.readlines()]
 FW_CACHE = {}
-# sort known entities in order of increasing token length
+# load known entities and sort in order of increasing token length
 with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'entities.tab'), 'r') as f:
     KNOWN_ENTITIES = OrderedDict(sorted(
         ((x.split('\t')[0], x.split('\t')[1]) for x in f.readlines()),
@@ -87,10 +89,11 @@ with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'entities.tab'), 'r') as f:
     ))
 
 
-def add_entity_feature(sentences, dropout=0.2):
+def add_entity_feature(sentences, dropout=0.2, predict=False):
+    # unless we're predicting, use dropout to pretend we don't know some entities
     dropout_entities = {
         k: v for k, v in KNOWN_ENTITIES.items()
-        if random.random() >= dropout
+        if random.random() >= dropout or predict
     }
 
     def find_span_matches(tokens, pattern):
@@ -178,7 +181,7 @@ def add_left_morph_feature(sentences):
             feats = token['feats']
             misc = token['misc']
             if misc is not None and 'Morphs' in misc:
-                feats['LeftmostMorph'] = misc['Morphs'].split('-')[0]
+                feats['LeftMorph'] = misc['Morphs'].split('-')[0]
             token['feats'] = feats
     return sentences
 
@@ -215,7 +218,7 @@ def add_foreign_word_feature(sentences):
     return sentences
 
 
-def preprocess(conllu_string):
+def preprocess(conllu_string, predict):
     # remove gold information
     s = PREPROCESSOR.run_depedit(conllu_string)
 
@@ -226,15 +229,15 @@ def preprocess(conllu_string):
             if token['feats'] is None:
                 token['feats'] = OrderedDict()
     add_foreign_word_feature(sentences)
-    add_left_morph_feature(sentences)
-    add_morph_count_feature(sentences, binary=True)
-    add_entity_feature(sentences)
+    #add_left_morph_feature(sentences)
+    add_morph_count_feature(sentences, binary=False)
+    add_entity_feature(sentences, dropout=0.15, predict=predict)
 
     # serialize and return
     return "".join([sentence.serialize() for sentence in sentences])
 
 
-def read_conllu_arg(conllu_filepath_or_string, gold=False):
+def read_conllu_arg(conllu_filepath_or_string, gold=False, predict=False):
     try:
         conllu.parse(conllu_filepath_or_string)
         s = conllu_filepath_or_string
@@ -248,7 +251,7 @@ def read_conllu_arg(conllu_filepath_or_string, gold=False):
                             f'or a filepath to a valid conllu string')
 
     if not gold:
-        s = preprocess(s)
+        s = preprocess(s, predict)
 
     tempf = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False)
     tempf.write(s)
@@ -296,7 +299,7 @@ def pred(input, save_name=None):
     """
     args = DEFAULT_PARAMS.copy()
     args['mode'] = "predict"
-    args['eval_file'] = read_conllu_arg(input)
+    args['eval_file'] = read_conllu_arg(input, predict=True)
     args['gold_file'] = None
     if save_name:
         args['save_name'] = save_name
