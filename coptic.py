@@ -1,4 +1,5 @@
 import argparse
+import random
 import sys
 from os.path import join as j
 from collections import OrderedDict
@@ -32,10 +33,10 @@ DEFAULT_PARAMS = {
 
     # char embeddings
     'char': True,
-    'char_hidden_dim': 250,
+    'char_hidden_dim': 200,
     'char_emb_dim': 50,
     'char_num_layers': 1,
-    'char_rec_dropout': 0,
+    'char_rec_dropout': 0.3,
 
     # pos tags
     'tag_emb_dim': 5,
@@ -48,7 +49,7 @@ DEFAULT_PARAMS = {
     'transformed_dim': 125,
     'num_layers': 3,
     'pretrain_max_vocab': 250000,
-    'dropout': 0.5,
+    'dropout': 0.4,
     'rec_dropout': 0,
     'linearization': True,
     'distance': True,
@@ -58,7 +59,7 @@ DEFAULT_PARAMS = {
     'optim': 'adam',
     'lr': 0.002,
     'beta2': 0.95,
-    'max_steps': 5000,
+    'max_steps': 10000,
     'eval_interval': 100,
     'max_steps_before_stop': 3000,
     'batch_size': 1500,
@@ -73,23 +74,111 @@ DEFAULT_PARAMS = {
     'wordvec_file': None,
 }
 
-
 PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "stanza_data", "depedit", "add_ud_and_flat_morph.ini"),
                                options=type('', (), {"quiet": True, "kill": "both"}))
 with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'lang_lexicon.tab'), 'r') as f:
     FOREIGN_WORDS = [x.split('\t')[0] for x in f.readlines()]
 FW_CACHE = {}
+# sort known entities in order of increasing token length
+with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'entities.tab'), 'r') as f:
+    KNOWN_ENTITIES = OrderedDict(sorted(
+        ((x.split('\t')[0], x.split('\t')[1]) for x in f.readlines()),
+        key=lambda x: len(x[0].split(" "))
+    ))
 
 
-def add_morphs_feature(sentences, binary=False):
+def add_entity_feature(sentences, dropout=0.2):
+    dropout_entities = {
+        k: v for k, v in KNOWN_ENTITIES.items()
+        if random.random() >= dropout
+    }
+
+    def find_span_matches(tokens, pattern):
+        slen = len(pattern)
+        matches = []
+        for i in range(len(tokens) - (slen - 1)):
+            if tokens[i:i + slen] == pattern:
+                matches.append((i, slen))
+        return matches
+
+    def delete_conflicting(new_span, entities, entity_tags):
+        overlap_exists = lambda range1, range2: set(range1).intersection(range2)
+        span = lambda begin, length: list(range(begin, begin + length))
+
+        new_span = span(*new_span)
+        for i in range(len(entities) - 1, -1, -1):
+            begin, length, _ = entities[i]
+
+            # in case of overlap, remove the old entity and pop it off the list
+            old_span = span(begin, length)
+            if overlap_exists(new_span, old_span):
+                for j in old_span:
+                    entity_tags[j] = "O"
+                entities.pop(i)
+
+    def encode(new_span, entity_tags, entity_type, scheme="BIOLU"):
+        assert scheme in ["BIOLU", "BIO"]
+        if scheme == "BIOLU":
+            unit_tag = "U-"
+            begin_tag = "B-"
+            inside_tag = "I-"
+            last_tag = "L-"
+        else:
+            unit_tag = "B-"
+            begin_tag = "B-"
+            inside_tag = "I-"
+            last_tag = "I-"
+
+        begin, length = new_span
+        if length == 1:
+            entity_tags[begin] = unit_tag + entity_type
+        else:
+            for i in range(begin, begin + length):
+                if i == begin:
+                    entity_tags[i] = begin_tag + entity_type
+                elif i == (begin + length - 1):
+                    entity_tags[i] = last_tag + entity_type
+                else:
+                    entity_tags[i] = inside_tag + entity_type
+
+    # use BIOLU encoding for entities https://github.com/taasmoe/BIO-to-BIOLU
+    # in case of nesting, longer entity wins
+    for sentence in sentences:
+        tokens = [t['form'] for t in sentence]
+        entity_tags = (['O'] * len(tokens))
+
+        entities = []
+        for entity_string, entity_type in dropout_entities.items():
+            new_spans = find_span_matches(tokens, entity_string.split(" "))
+            for new_span in new_spans:
+                delete_conflicting(new_span, entities, entity_tags)
+                encode(new_span, entity_tags, entity_type)
+                entities.append((new_span[0], new_span[1], entity_type))
+
+        for token, entity_tag in zip(sentence, entity_tags):
+            token['feats']['Entity'] = entity_tag
+
+
+def add_morph_count_feature(sentences, binary=True):
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
             misc = token['misc']
 
-            feats['LeftmostMorph'] = ('Simple'
-                                      if misc is None or 'Morphs' not in misc
-                                      else (misc['Morphs'].split('-')[0]) if not binary else 'Complex')
+            feats['MorphCount'] = ('1'
+                                   if misc is None or 'Morphs' not in misc
+                                   else (str(len(misc['Morphs'].split('-'))) if not binary else 'Many'))
+            token['feats'] = feats
+    return sentences
+
+
+def add_left_morph_feature(sentences):
+    for sentence in sentences:
+        for token in sentence:
+            feats = token['feats']
+            misc = token['misc']
+            if misc is not None and 'Morphs' in misc:
+                feats['LeftmostMorph'] = misc['Morphs'].split('-')[0]
             token['feats'] = feats
     return sentences
 
@@ -137,7 +226,9 @@ def preprocess(conllu_string):
             if token['feats'] is None:
                 token['feats'] = OrderedDict()
     add_foreign_word_feature(sentences)
-    add_morphs_feature(sentences, binary=True)
+    add_left_morph_feature(sentences)
+    add_morph_count_feature(sentences, binary=True)
+    add_entity_feature(sentences)
 
     # serialize and return
     return "".join([sentence.serialize() for sentence in sentences])
@@ -266,10 +357,10 @@ def main(mode):
             j("stanza_data", "scriptorium", "cs-ud-train-and-dev.conllu"),
             j("stanza_data", "scriptorium", "cs-ud-minitest.conllu")
         )
-        #train(
+        # train(
         #    j("stanza_data", "scriptorium", "cs-ud-train-preprocessed.conllu"),
         #    j("stanza_data", "scriptorium", "cs-ud-dev-preprocessed.conllu")
-        #)
+        # )
     elif mode == 'test':
         test(j("stanza_data", "scriptorium", "cs-ud-test.conllu"))
     else:
@@ -282,4 +373,3 @@ if __name__ == '__main__':
     args = ap.parse_args()
     sys.argv.pop()
     main(args.mode)
-
