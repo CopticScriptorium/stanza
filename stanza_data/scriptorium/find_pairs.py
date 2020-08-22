@@ -8,8 +8,9 @@ gold_labels = [t['deprel'] for sent in gold for t in sent]
 pred_labels = [t['deprel'] for sent in pred for t in sent]
 vocab = sorted(list(set(gold_labels + pred_labels)))
 
-l1 = "nmod"
-l2 = "obl"
+import sys
+l1 = sys.argv[1]
+l2 = sys.argv[2]
 
 print("sent_id\ttok_num\tdeprel_gold\tdeprel_pred\tsent")
 for g_sent, p_sent in zip(gold, pred):
@@ -21,6 +22,8 @@ for g_sent, p_sent in zip(gold, pred):
             line.append(str(i))
             line.append(gt['deprel'])
             line.append(pt['deprel'])
-            line.append(" ".join(t['form'] if i != j else '>>' + t['form'] + '<<' for j,t in enumerate(g_sent)))
+            line.append(" ".join(t['form'] if i != j else '>>' + t['form'] + '<<' 
+                                 for j,t in enumerate(g_sent) 
+                                 if type(t['id']) == int))
             print('\t'.join(line))
 

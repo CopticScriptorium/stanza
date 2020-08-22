@@ -1,38 +1,225 @@
 import argparse
-from os.path import join as j
 import sys
+from os.path import join as j
+from collections import OrderedDict
+import conllu
+import torch
+import pathlib
+import tempfile
+import depedit
 
 import stanza.models.parser as parser
 
+PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.absolute()
+DEFAULT_PARAMS = {
+    # general setup
+    'lang': 'cop',
+    'treebank': 'cop_scriptorium',
+    'shorthand': 'cop_scriptorium',
+    'data_dir': j(PACKAGE_BASE_DIR, 'data', 'depparse'),
+    'output_file': j(PACKAGE_BASE_DIR, 'stanza_data', 'scriptorium', 'pred.conllu'),
+    'seed': 1234,
+    'cuda': torch.cuda.is_available(),
+    'cpu': not torch.cuda.is_available(),
+    'save_dir': j('stanza_models'),
+    'save_name': None,
 
-def train(args):
-    args['wordvec_dir'] = j("stanza_data", "wordvec")
-    #args['train_file'] = j("stanza_data", "scriptorium", "cs-ud-train-preprocessed.conllu")
-    #args['eval_file'] = j("stanza_data", "scriptorium", "cs-ud-dev-preprocessed.conllu")
-    #args['gold_file'] = j("stanza_data", "scriptorium", "cs-ud-dev.conllu")
-    args['train_file'] = j("stanza_data", "scriptorium", "cs-ud-train-and-dev-preprocessed.conllu")
-    args['eval_file'] = j("stanza_data", "scriptorium", "cs-ud-minitest-preprocessed.conllu")
-    args['gold_file'] = j("stanza_data", "scriptorium", "cs-ud-minitest.conllu")
-    args['output_file'] = j('stanza_data', "scriptorium", "cs-ud-minitest-pred.conllu")
+    # word embeddings
+    'pretrain': True,
+    'wordvec_dir': j(PACKAGE_BASE_DIR, 'stanza_data', 'wordvec'),
+    'word_emb_dim': 50,
+    'word_dropout': 0.3,
+
+    # char embeddings
+    'char': True,
+    'char_hidden_dim': 250,
+    'char_emb_dim': 50,
+    'char_num_layers': 1,
+    'char_rec_dropout': 0,
+
+    # pos tags
+    'tag_emb_dim': 5,
+    'tag_type': 'gold',
+
+    # network params
+    'hidden_dim': 300,
+    'deep_biaff_hidden_dim': 200,
+    'composite_deep_biaff_hidden_dim': 100,
+    'transformed_dim': 125,
+    'num_layers': 3,
+    'pretrain_max_vocab': 250000,
+    'dropout': 0.5,
+    'rec_dropout': 0,
+    'linearization': True,
+    'distance': True,
+
+    # training
+    'sample_train': 1.0,
+    'optim': 'adam',
+    'lr': 0.002,
+    'beta2': 0.95,
+    'max_steps': 5000,
+    'eval_interval': 100,
+    'max_steps_before_stop': 3000,
+    'batch_size': 1500,
+    'max_grad_norm': 1.0,
+    'log_step': 20,
+
+    # these need to be included or there will be an error when stanza tries to access them
+    'train_file': None,
+    'eval_file': None,
+    'gold_file': None,
+    'mode': None,
+    'wordvec_file': None,
+}
+
+
+PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "stanza_data", "depedit", "add_ud_and_flat_morph.ini"),
+                               options=type('', (), {"quiet": True, "kill": "both"}))
+with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'lang_lexicon.tab'), 'r') as f:
+    FOREIGN_WORDS = [x.split('\t')[0] for x in f.readlines()]
+FW_CACHE = {}
+
+
+def add_morphs_feature(sentences, binary=False):
+    for sentence in sentences:
+        for token in sentence:
+            feats = token['feats']
+            misc = token['misc']
+
+            feats['LeftmostMorph'] = ('Simple'
+                                      if misc is None or 'Morphs' not in misc
+                                      else (misc['Morphs'].split('-')[0]) if not binary else 'Complex')
+            token['feats'] = feats
+    return sentences
+
+
+def add_foreign_word_feature(sentences):
+    def is_foreign_word(lemma):
+        if lemma in FW_CACHE:
+            return FW_CACHE[lemma]
+
+        for fw in FOREIGN_WORDS:
+            glob_start = fw[0] == '*'
+            glob_end = fw[-1] == '*'
+            fw = fw.replace('*', '')
+            if glob_start and glob_end and fw in lemma:
+                FW_CACHE[lemma] = True
+                return True
+            elif glob_start and lemma.endswith(fw):
+                FW_CACHE[lemma] = True
+                return True
+            elif glob_end and lemma.startswith(fw):
+                FW_CACHE[lemma] = True
+                return True
+            elif lemma == fw:
+                FW_CACHE[lemma] = True
+                return True
+        FW_CACHE[lemma] = False
+        return False
+
+    for sentence in sentences:
+        for token in sentence:
+            feats = token['feats']
+            feats['ForeignWord'] = 'Yes' if is_foreign_word(token['lemma']) else 'No'
+            token['feats'] = feats
+    return sentences
+
+
+def preprocess(conllu_string):
+    # remove gold information
+    s = PREPROCESSOR.run_depedit(conllu_string)
+
+    # deserialize so we can add custom features
+    sentences = conllu.parse(s)
+    for sentence in sentences:
+        for token in sentence:
+            if token['feats'] is None:
+                token['feats'] = OrderedDict()
+    add_foreign_word_feature(sentences)
+    add_morphs_feature(sentences, binary=True)
+
+    # serialize and return
+    return "".join([sentence.serialize() for sentence in sentences])
+
+
+def read_conllu_arg(conllu_filepath_or_string, gold=False):
+    try:
+        conllu.parse(conllu_filepath_or_string)
+        s = conllu_filepath_or_string
+    except:
+        try:
+            with open(conllu_filepath_or_string, 'r') as f:
+                s = f.read()
+                conllu.parse(s)
+        except:
+            raise Exception(f'"{conllu_filepath_or_string}" must either be a valid conllu string '
+                            f'or a filepath to a valid conllu string')
+
+    if not gold:
+        s = preprocess(s)
+
+    tempf = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False)
+    tempf.write(s)
+    tempf.close()
+    return tempf.name
+
+
+def train(train, test, save_name=None):
+    """Train a new stanza model.
+
+    :param train: either a conllu string or a path to a conllu file
+    :param test: either a conllu string or a path to a conllu file
+    :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
+    """
+    args = DEFAULT_PARAMS.copy()
     args['mode'] = 'train'
+    args['train_file'] = read_conllu_arg(train)
+    args['eval_file'] = read_conllu_arg(test)
+    args['gold_file'] = read_conllu_arg(test, gold=True)
+    if save_name:
+        args['save_name'] = save_name
     parser.train(args)
 
 
-def test(args):
+def test(test, save_name=None):
+    """Evaluate using an existing stanza model.
+
+    :param test: either a conllu string or a path to a conllu file
+    :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
+    """
+    args = DEFAULT_PARAMS.copy()
     args['mode'] = "predict"
-    args['eval_file'] = j("stanza_data", "scriptorium", "cs-ud-test-preprocessed.conllu")
-    args['gold_file'] = j("stanza_data", "scriptorium", "cs-ud-test.conllu")
-    args['output_file'] = j('stanza_data', "scriptorium", "cs-ud-test-pred.conllu")
+    args['eval_file'] = read_conllu_arg(test)
+    args['gold_file'] = read_conllu_arg(test, gold=True)
+    if save_name:
+        args['save_name'] = save_name
     return parser.evaluate(args)
 
 
-def trial(args):
-    train(args)
-    las = test(args)
-    return las
+def pred(input, save_name=None):
+    """Predict using an existing stanza model.
+
+    :param input: either a conllu string or a path to a conllu file
+    :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
+    """
+    args = DEFAULT_PARAMS.copy()
+    args['mode'] = "predict"
+    args['eval_file'] = read_conllu_arg(input)
+    args['gold_file'] = None
+    if save_name:
+        args['save_name'] = save_name
+    return parser.evaluate(args)
 
 
-def search(args):
+def _hyperparam_search():
+    args = DEFAULT_PARAMS.copy()
+
+    def trial(args):
+        train(args)
+        las = test(args)
+        return las
+
     # most trials seem to converge by 6000
     args['max_steps'] = 6000
 
@@ -44,6 +231,7 @@ def search(args):
         'optim': hp.choice('optim', ['sgd', 'adagrad', 'adam', 'adamax']),
         'hidden_dim': scope.int(hp.quniform('hidden_dim', 150, 400, 50)),
     }
+
     # f to minimize
     def f(opted_args):
         new_args = args.copy()
@@ -67,36 +255,26 @@ def search(args):
     for i, tt in enumerate(trials):
         if i == 0:
             print("LAS\t" + "\t".join(list(tt['misc']['vals'].keys())))
-        vals = map(lambda x:str(x[0]), tt['misc']['vals'].values())
-        las = str(1-tt['result']['loss'])
+        vals = map(lambda x: str(x[0]), tt['misc']['vals'].values())
+        las = str(1 - tt['result']['loss'])
         print('\t'.join([las, "\t".join(vals)]))
 
 
 def main(mode):
-    args = vars(parser.parse_args())
-    args['lang'] = "cop"
-    args['shorthand'] = "cop_scriptorium"
-    args['treebank'] = "cop_scriptorium"
-    args['tag_type'] = "gold"
-
-    # parameters we're pretty sure about
-    args['word_emb_dim'] = 50
-    args['char_emb_dim'] = 50
-    args['tag_emb_dim'] = 5
-    args['batch_size'] = 1500
-    args['num_layers'] = 3
-    args['word_dropout'] = 0.3
-    args['dropout'] = 0.5
-    args['char_hidden_dim'] = 250
-    args['deep_biaff_hidden_dim'] = 200
-    args['hidden_dim'] = 300
-
     if mode == 'train':
-        train(args.copy())
+        train(
+            j("stanza_data", "scriptorium", "cs-ud-train-and-dev.conllu"),
+            j("stanza_data", "scriptorium", "cs-ud-minitest.conllu")
+        )
+        #train(
+        #    j("stanza_data", "scriptorium", "cs-ud-train-preprocessed.conllu"),
+        #    j("stanza_data", "scriptorium", "cs-ud-dev-preprocessed.conllu")
+        #)
     elif mode == 'test':
-        test(args.copy())
+        test(j("stanza_data", "scriptorium", "cs-ud-test.conllu"))
     else:
-        search(args)
+        _hyperparam_search()
+
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -105,18 +283,3 @@ if __name__ == '__main__':
     sys.argv.pop()
     main(args.mode)
 
-
-    """set -o xtrace
-echo "Running parser with $args..."
-python -m stanza.models.parser \
-        --wordvec_dir $WORDVEC_DIR \
-        --train_file $train_file \
-        --eval_file $eval_file \
-        --output_file $output_file \
-        --gold_file $gold_file \
-        --lang $lang \
-        --shorthand $short \
-        --batch_size $batch_size \
-        --mode train \
-        $args
-        """
