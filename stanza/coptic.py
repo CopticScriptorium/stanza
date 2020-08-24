@@ -11,7 +11,7 @@ import depedit
 
 import stanza.models.parser as parser
 
-PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.absolute()
+PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.parent.absolute()
 DEFAULT_PARAMS = {
     # general setup
     'lang': 'cop',
@@ -229,7 +229,7 @@ def preprocess(conllu_string, predict):
             if token['feats'] is None:
                 token['feats'] = OrderedDict()
     add_foreign_word_feature(sentences)
-    #add_left_morph_feature(sentences)
+    add_left_morph_feature(sentences)
     add_morph_count_feature(sentences, binary=False)
     add_entity_feature(sentences, dropout=0.15, predict=predict)
 
@@ -354,25 +354,3 @@ def _hyperparam_search():
         print('\t'.join([las, "\t".join(vals)]))
 
 
-def main(mode):
-    if mode == 'train':
-        train(
-            j("stanza_data", "scriptorium", "cs-ud-train-and-dev.conllu"),
-            j("stanza_data", "scriptorium", "cs-ud-minitest.conllu")
-        )
-        # train(
-        #    j("stanza_data", "scriptorium", "cs-ud-train-preprocessed.conllu"),
-        #    j("stanza_data", "scriptorium", "cs-ud-dev-preprocessed.conllu")
-        # )
-    elif mode == 'test':
-        test(j("stanza_data", "scriptorium", "cs-ud-test.conllu"))
-    else:
-        _hyperparam_search()
-
-
-if __name__ == '__main__':
-    ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=['hyperopt', 'train', 'test'])
-    args = ap.parse_args()
-    sys.argv.pop()
-    main(args.mode)
