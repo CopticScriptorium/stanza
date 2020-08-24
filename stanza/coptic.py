@@ -11,14 +11,14 @@ import depedit
 
 import stanza.models.parser as parser
 
-PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.parent.absolute()
+PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.absolute()
 DEFAULT_PARAMS = {
     # general setup
     'lang': 'cop',
     'treebank': 'cop_scriptorium',
     'shorthand': 'cop_scriptorium',
     'data_dir': j(PACKAGE_BASE_DIR, 'data', 'depparse'),
-    'output_file': j(PACKAGE_BASE_DIR, 'stanza_data', 'scriptorium', 'pred.conllu'),
+    'output_file': j(PACKAGE_BASE_DIR, 'coptic_data', 'scriptorium', 'pred.conllu'),
     'seed': 1234,
     'cuda': torch.cuda.is_available(),
     'cpu': not torch.cuda.is_available(),
@@ -27,8 +27,8 @@ DEFAULT_PARAMS = {
 
     # word embeddings
     'pretrain': True,
-    'wordvec_dir': j(PACKAGE_BASE_DIR, 'stanza_data', 'wordvec'),
-    'wordvec_file': j(PACKAGE_BASE_DIR, 'stanza_data', 'wordvec', 'word2vec', 'Coptic', 'coptic_50d.vec.xz'),
+    'wordvec_dir': j(PACKAGE_BASE_DIR, 'coptic_data', 'wordvec'),
+    'wordvec_file': j(PACKAGE_BASE_DIR, 'coptic_data', 'wordvec', 'word2vec', 'Coptic', 'coptic_50d.vec.xz'),
     'word_emb_dim': 50,
     'word_dropout': 0.3,
 
@@ -75,14 +75,14 @@ DEFAULT_PARAMS = {
 }
 
 # preprocessor
-PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "stanza_data", "depedit", "add_ud_and_flat_morph.ini"),
+PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "coptic_data", "depedit", "add_ud_and_flat_morph.ini"),
                                options=type('', (), {"quiet": True, "kill": "both"}))
 # load foreign words
-with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'lang_lexicon.tab'), 'r') as f:
+with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'lang_lexicon.tab'), 'r') as f:
     FOREIGN_WORDS = [x.split('\t')[0] for x in f.readlines()]
 FW_CACHE = {}
 # load known entities and sort in order of increasing token length
-with open(j(PACKAGE_BASE_DIR, 'stanza_data', 'entities.tab'), 'r') as f:
+with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'entities.tab'), 'r') as f:
     KNOWN_ENTITIES = OrderedDict(sorted(
         ((x.split('\t')[0], x.split('\t')[1]) for x in f.readlines()),
         key=lambda x: len(x[0].split(" "))
