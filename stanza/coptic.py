@@ -18,7 +18,11 @@ from stanza.models.common.doc import *
 from stanza.utils.conll import CoNLL
 
 PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.absolute()
-DEFAULT_PARAMS = {
+
+# Parser arguments -----------------------------------------------------------------------------------------------------
+# These args are used by stanza.models.parser. Keys should always exactly match those you'd get from the dictionary
+# obtained from running stanza.models.parser.parse_args(). The values below were selected through hyperoptimization.
+DEFAULT_PARSER_ARGS = {
     # general setup
     'lang': 'cop',
     'treebank': 'cop_scriptorium',
@@ -43,7 +47,7 @@ DEFAULT_PARAMS = {
     'char_hidden_dim': 200,
     'char_emb_dim': 50,
     'char_num_layers': 1,
-    'char_rec_dropout': 0, # very slow!
+    'char_rec_dropout': 0,  # very slow!
 
     # pos tags
     'tag_emb_dim': 5,
@@ -57,7 +61,7 @@ DEFAULT_PARAMS = {
     'num_layers': 3,
     'pretrain_max_vocab': 250000,
     'dropout': 0.5,
-    'rec_dropout': 0, # very slow!
+    'rec_dropout': 0,  # very slow!
     'linearization': True,
     'distance': True,
 
@@ -80,13 +84,26 @@ DEFAULT_PARAMS = {
     'mode': None,
 }
 
-# preprocessor
+# Custom features ------------------------------------------------------------------------------------------------------
+# Params for controlling the custom features we're feeding the network
+FEATURE_CONFIG = {
+    # BIOLU or BIO
+    'entity_encoding_scheme': 'BIOLU',
+    'entity_dropout': 0.15,
+    'morph_count_binary': False,
+    'foreign_word_binary': False
+}
+
+# DepEdit preprocessor which removes gold morph data and makes a few other tweaks
 PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "coptic_data", "depedit", "add_ud_and_flat_morph.ini"),
                                options=type('', (), {"quiet": True, "kill": "both"}))
-# load foreign words
+
+# Load a lexicon of foreign words and initialize a lemma cache
 with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'lang_lexicon.tab'), 'r') as f:
-    FOREIGN_WORDS = [x.split('\t')[0] for x in f.readlines()]
+    FOREIGN_WORDS = {x.split('\t')[0]: x.split('\t')[1].rstrip()
+                     for x in f.readlines() if '\t' in x}
 FW_CACHE = {}
+
 # load known entities and sort in order of increasing token length
 with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'entities.tab'), 'r') as f:
     KNOWN_ENTITIES = OrderedDict(sorted(
@@ -95,11 +112,15 @@ with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'entities.tab'), 'r') as f:
     ))
 
 
-def add_entity_feature(sentences, dropout=0.2, predict=False):
+def _add_entity_feature(feature_config, sentences, predict=False):
     # unless we're predicting, use dropout to pretend we don't know some entities
     dropout_entities = {
-        k: v for k, v in KNOWN_ENTITIES.items()
-        if random.random() >= dropout or predict
+        estr: etype for estr, etype in KNOWN_ENTITIES.items()
+        # if we're predicting, do not apply any dropout. otherwise, dropout if we
+        # roll the dice below the threshold and the entity has more than one piece
+        # (single-token entities should be pretty reliable)
+        if (predict or
+            (random.random() <= feature_config['entity_dropout'] and ' ' in estr))
     }
 
     def find_span_matches(tokens, pattern):
@@ -125,9 +146,9 @@ def add_entity_feature(sentences, dropout=0.2, predict=False):
                     entity_tags[j] = "O"
                 entities.pop(i)
 
-    def encode(new_span, entity_tags, entity_type, scheme="BIOLU"):
-        assert scheme in ["BIOLU", "BIO"]
-        if scheme == "BIOLU":
+    def encode(new_span, entity_tags, entity_type):
+        assert feature_config['entity_encoding_scheme'] in ["BIOLU", "BIO"]
+        if feature_config['entity_encoding_scheme'] == "BIOLU":
             unit_tag = "U-"
             begin_tag = "B-"
             inside_tag = "I-"
@@ -168,20 +189,24 @@ def add_entity_feature(sentences, dropout=0.2, predict=False):
             token['feats']['Entity'] = entity_tag
 
 
-def add_morph_count_feature(sentences, binary=True):
+def _add_morph_count_feature(feature_config, sentences):
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
             misc = token['misc']
 
-            feats['MorphCount'] = ('1'
-                                   if misc is None or 'Morphs' not in misc
-                                   else (str(len(misc['Morphs'].split('-'))) if not binary else 'Many'))
+            feats['MorphCount'] = (
+                '1' if misc is None or 'Morphs' not in misc
+                else (
+                    'Many' if feature_config['morph_count_binary']
+                    else str(len(misc['Morphs'].split('-')))
+                )
+            )
             token['feats'] = feats
     return sentences
 
 
-def add_left_morph_feature(sentences):
+def _add_left_morph_feature(feature_config, sentences):
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
@@ -192,39 +217,45 @@ def add_left_morph_feature(sentences):
     return sentences
 
 
-def add_foreign_word_feature(sentences):
-    def is_foreign_word(lemma):
+def _add_foreign_word_feature(feature_config, sentences):
+    def foreign_word_lookup(lemma):
         if lemma in FW_CACHE:
             return FW_CACHE[lemma]
 
-        for fw in FOREIGN_WORDS:
+        for fw, lang in FOREIGN_WORDS.items():
             glob_start = fw[0] == '*'
             glob_end = fw[-1] == '*'
             fw = fw.replace('*', '')
             if glob_start and glob_end and fw in lemma:
-                FW_CACHE[lemma] = True
-                return True
+                FW_CACHE[lemma] = lang
+                return lang
             elif glob_start and lemma.endswith(fw):
-                FW_CACHE[lemma] = True
-                return True
+                FW_CACHE[lemma] = lang
+                return lang
             elif glob_end and lemma.startswith(fw):
-                FW_CACHE[lemma] = True
-                return True
+                FW_CACHE[lemma] = lang
+                return lang
             elif lemma == fw:
-                FW_CACHE[lemma] = True
-                return True
+                FW_CACHE[lemma] =lang
+                return lang
         FW_CACHE[lemma] = False
         return False
 
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
-            feats['ForeignWord'] = 'Yes' if is_foreign_word(token['lemma']) else 'No'
+            lang_of_origin = foreign_word_lookup(token['lemma'])
+            feats['ForeignWord'] = (
+                'No' if not lang_of_origin
+                else (
+                    'Yes' if feature_config['foreign_word_binary']
+                    else lang_of_origin
+                ))
             token['feats'] = feats
     return sentences
 
 
-def preprocess(conllu_string, predict):
+def _preprocess(feature_config, conllu_string, predict):
     # remove gold information
     s = PREPROCESSOR.run_depedit(conllu_string)
 
@@ -234,16 +265,16 @@ def preprocess(conllu_string, predict):
         for token in sentence:
             if token['feats'] is None:
                 token['feats'] = OrderedDict()
-    add_foreign_word_feature(sentences)
-    add_left_morph_feature(sentences)
-    add_morph_count_feature(sentences, binary=False)
-    add_entity_feature(sentences, dropout=0.15, predict=predict)
+    _add_foreign_word_feature(feature_config, sentences)
+    _add_left_morph_feature(feature_config, sentences)
+    _add_morph_count_feature(feature_config, sentences)
+    _add_entity_feature(feature_config, sentences, predict=predict)
 
     # serialize and return
     return "".join([sentence.serialize() for sentence in sentences])
 
 
-def read_conllu_arg(conllu_filepath_or_string, gold=False, predict=False):
+def _read_conllu_arg(conllu_filepath_or_string, feature_config, gold=False, predict=False):
     try:
         conllu.parse(conllu_filepath_or_string)
         s = conllu_filepath_or_string
@@ -257,7 +288,7 @@ def read_conllu_arg(conllu_filepath_or_string, gold=False, predict=False):
                             f'or a filepath to a valid conllu string')
 
     if not gold:
-        s = preprocess(s, predict)
+        s = _preprocess(feature_config, s, predict)
 
     tempf = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False)
     tempf.write(s)
@@ -265,6 +296,7 @@ def read_conllu_arg(conllu_filepath_or_string, gold=False, predict=False):
     return tempf.name
 
 
+# public api -----------------------------------------------------------------------------------------------------------
 def train(train, dev, save_name=None):
     """Train a new stanza model.
 
@@ -272,11 +304,12 @@ def train(train, dev, save_name=None):
     :param dev: either a conllu string or a path to a conllu file
     :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
     """
-    args = DEFAULT_PARAMS.copy()
+    args = DEFAULT_PARSER_ARGS.copy()
+    feature_config = FEATURE_CONFIG.copy()
     args['mode'] = 'train'
-    args['train_file'] = read_conllu_arg(train)
-    args['eval_file'] = read_conllu_arg(dev)
-    args['gold_file'] = read_conllu_arg(dev, gold=True)
+    args['train_file'] = _read_conllu_arg(train, feature_config)
+    args['eval_file'] = _read_conllu_arg(dev, feature_config)
+    args['gold_file'] = _read_conllu_arg(dev, feature_config, gold=True)
     if save_name:
         args['save_name'] = save_name
     parser.train(args)
@@ -288,10 +321,11 @@ def test(test, save_name=None):
     :param test: either a conllu string or a path to a conllu file
     :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
     """
-    args = DEFAULT_PARAMS.copy()
+    args = DEFAULT_PARSER_ARGS.copy()
+    feature_config = FEATURE_CONFIG.copy()
     args['mode'] = "predict"
-    args['eval_file'] = read_conllu_arg(test)
-    args['gold_file'] = read_conllu_arg(test, gold=True)
+    args['eval_file'] = _read_conllu_arg(test, feature_config)
+    args['gold_file'] = _read_conllu_arg(test, feature_config, gold=True)
     if save_name:
         args['save_name'] = save_name
     return parser.evaluate(args)
@@ -299,9 +333,12 @@ def test(test, save_name=None):
 
 class Predictor:
     """Wrapper class so model can sit in memory for multiple predictions"""
-    def __init__(self, args=None):
+
+    def __init__(self, args=None, feature_config=None):
         if args is None:
-            args = DEFAULT_PARAMS.copy()
+            args = DEFAULT_PARSER_ARGS.copy()
+        if feature_config is None:
+            self.feature_config = FEATURE_CONFIG.copy()
         model_file = args['save_dir'] + '/' + args['save_name'] if args['save_name'] is not None \
             else '{}/{}_parser.pt'.format(args['save_dir'], args['shorthand'])
 
@@ -322,7 +359,7 @@ class Predictor:
                 self.loaded_args[k] = args[k]
 
     def predict(self, eval_file_or_string):
-        eval_file = read_conllu_arg(eval_file_or_string, predict=True)
+        eval_file = _read_conllu_arg(eval_file_or_string, self.feature_config, predict=True)
         doc = Document(CoNLL.conll2dict(input_file=eval_file))
         batch = DataLoader(
             doc,
@@ -348,7 +385,7 @@ class Predictor:
 
 
 def _hyperparam_search():
-    args = DEFAULT_PARAMS.copy()
+    args = DEFAULT_PARSER_ARGS.copy()
 
     def trial(args):
         train(args)
@@ -393,5 +430,3 @@ def _hyperparam_search():
         vals = map(lambda x: str(x[0]), tt['misc']['vals'].values())
         las = str(1 - tt['result']['loss'])
         print('\t'.join([las, "\t".join(vals)]))
-
-
