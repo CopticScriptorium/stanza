@@ -2,6 +2,50 @@
 
 This is [Coptic Scriptorium](https://github.com/CopticScriptorium)'s fork of Stanza. We use Stanza's dependency parser in a lightly modified form.
 
+## Coptic Scriptorium-specific instructions
+
+### Train a model
+In this repository:
+```
+python coptic_cli.py train
+# model will appear under `stanza_models/`
+```
+### Using a model
+1. Move `stanza_models/` to your production working directory. 
+2. `pip install --upgrade git+git://github.com/CopticScriptorium/stanza.git#egg=stanza`
+3. Use the functions `train`, `test`, and `Predictor.predict` from `stanza.coptic`. These functions will accept 
+**either** a conllu string or a filepath to a valid conllu file:
+```python
+>>> from stanza.coptic import train, test, Predictor
+>>> # train a new model
+>>> train('/path/to/train.conllu', '/path/to/dev.conllu')
+>>> # eval on a dataset using saved model
+>>> test('/path/to/test.conllu')
+>>> # load saved model into memory and get predicted conllu strings
+>>> p = Predictor()
+>>> p.predict('my-conllu-string-or-conllu-filepath')
+1	ⲁⲩⲱ	ⲁⲩⲱ	CONJ	CONJ	ForeignWord=No|MorphCount=1|Entity=O	10	cc	_	_
+2	ϫⲉ	ϫⲉ	CONJ	CONJ	ForeignWord=No|MorphCount=1|Entity=O	3	mark	_	_
+3	ⲛ	ⲡ	ART	ART	Definite=Def|Number=Plur|PronType=Art|ForeignWord=No|MorphCount=1|Entity=B-person	10	dislocated	_	_
+4	ⲉⲧ	ⲉⲧⲉⲣⲉ	CREL	CREL	ForeignWord=No|MorphCount=1|Entity=I-person	5	mark	_	_
+5	ⲛⲕⲟⲧⲕ	ⲛⲕⲟⲧⲕ	V	V	fin=fin|subord=subord|ForeignWord=No|MorphCount=1|Entity=L-person	3	acl	_	Orig=ⲛ︦ⲕⲟⲧ︤ⲕ︥
+6	ⲅⲁⲣ	ⲅⲁⲣ	PTC	PTC	Position=Wack|ForeignWord=Yes|MorphCount=1|Entity=O	10	advmod	_	_
+7	.	.	PUNCT	PUNCT	ForeignWord=No|MorphCount=1|Entity=O	5	punct	_	_
+8	ⲉ	ⲉⲣⲉ	CCIRC	CCIRC	ForeignWord=No|MorphCount=1|Entity=O	10	mark	_	_
+9	ⲩ	ⲛⲧⲟⲟⲩ	PPERS	PPERS	Definite=Def|Number=Plur|Person=3|PronType=Prs|ForeignWord=No|MorphCount=1|Entity=O	10	nsubj	_	_
+10	ⲛⲕⲟⲧⲕ	ⲛⲕⲟⲧⲕ	V	V	fin=fin|subord=subord|ForeignWord=No|MorphCount=1|Entity=O	0	root	_	Orig=ⲛ︤̄ⲕ︥ⲟⲧ︤ⲕ︥
+11	ⲛ	ⲙ	PREP	PREP	ForeignWord=No|MorphCount=1|Entity=O	13	case	_	Orig=ⲛ̄
+12	ⲧⲉ	ⲡ	ART	ART	Definite=Def|Gender=Fem|Number=Sing|PronType=Art|ForeignWord=No|MorphCount=1|Entity=B-time	13	det	_	_
+13	ⲩϣⲏ	ⲟⲩϣⲏ	N	N	ForeignWord=No|MorphCount=1|Entity=L-time	10	obl	_	Orig=ⲩϣⲏ̂
+14	·	·	PUNCT	PUNCT	ForeignWord=No|MorphCount=1|Entity=O	10	punct	_	_
+```
+
+### Keeping this fork up to date
+
+Use `git pull upstream master` to get updates from `stanfordnlp/stanza`. Watch out for breaking changes--our custom code here was developed against stanza==1.1.1.
+
+<hr>
+
 <div align="center"><img src="https://github.com/stanfordnlp/stanza/raw/dev/images/stanza-logo.png" height="100px"/></div>
 
 <h2 align="center">Stanza: A Python NLP Library for Many Human Languages</h2>

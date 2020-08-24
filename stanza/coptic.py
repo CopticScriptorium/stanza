@@ -10,6 +10,12 @@ import tempfile
 import depedit
 
 import stanza.models.parser as parser
+from stanza.models.depparse.data import DataLoader
+from stanza.models.depparse.trainer import Trainer
+from stanza.models.common import utils
+from stanza.models.common.pretrain import Pretrain
+from stanza.models.common.doc import *
+from stanza.utils.conll import CoNLL
 
 PACKAGE_BASE_DIR = pathlib.Path(__file__).parent.absolute()
 DEFAULT_PARAMS = {
@@ -263,7 +269,7 @@ def train(train, dev, save_name=None):
     """Train a new stanza model.
 
     :param train: either a conllu string or a path to a conllu file
-    :param test: either a conllu string or a path to a conllu file
+    :param dev: either a conllu string or a path to a conllu file
     :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
     """
     args = DEFAULT_PARAMS.copy()
@@ -291,19 +297,54 @@ def test(test, save_name=None):
     return parser.evaluate(args)
 
 
-def pred(input, save_name=None):
-    """Predict using an existing stanza model.
+class Predictor:
+    """Wrapper class so model can sit in memory for multiple predictions"""
+    def __init__(self, args=None):
+        if args is None:
+            args = DEFAULT_PARAMS.copy()
+        model_file = args['save_dir'] + '/' + args['save_name'] if args['save_name'] is not None \
+            else '{}/{}_parser.pt'.format(args['save_dir'], args['shorthand'])
 
-    :param input: either a conllu string or a path to a conllu file
-    :param save_name: optional, a name for your model's save file, which will appear in 'stanza_models/'
-    """
-    args = DEFAULT_PARAMS.copy()
-    args['mode'] = "predict"
-    args['eval_file'] = read_conllu_arg(input, predict=True)
-    args['gold_file'] = None
-    if save_name:
-        args['save_name'] = save_name
-    return parser.evaluate(args)
+        # load pretrain; note that we allow the pretrain_file to be non-existent
+        pretrain_file = '{}/{}.pretrain.pt'.format(args['save_dir'], args['shorthand'])
+        self.pretrain = Pretrain(pretrain_file)
+
+        # load model
+        print("Loading model from: {}".format(model_file))
+        use_cuda = args['cuda'] and not args['cpu']
+        self.trainer = Trainer(pretrain=self.pretrain, model_file=model_file, use_cuda=use_cuda)
+        self.loaded_args, self.vocab = self.trainer.args, self.trainer.vocab
+        self.batch_size = args['batch_size']
+
+        # load config
+        for k in args:
+            if k.endswith('_dir') or k.endswith('_file') or k in ['shorthand'] or k == 'mode':
+                self.loaded_args[k] = args[k]
+
+    def predict(self, eval_file_or_string):
+        eval_file = read_conllu_arg(eval_file_or_string, predict=True)
+        doc = Document(CoNLL.conll2dict(input_file=eval_file))
+        batch = DataLoader(
+            doc,
+            self.batch_size,
+            self.loaded_args,
+            self.pretrain,
+            vocab=self.vocab,
+            evaluation=False
+        )
+
+        if len(batch) > 0:
+            preds = []
+            for i, b in enumerate(batch):
+                preds += self.trainer.predict(b)
+        else:
+            # skip eval if dev data does not exist
+            preds = []
+        batch.doc.set([HEAD, DEPREL], [y for x in preds for y in x])
+
+        doc_conll = CoNLL.convert_dict(batch.doc.to_dict())
+        conll_string = CoNLL.conll_as_string(doc_conll)
+        return conll_string
 
 
 def _hyperparam_search():

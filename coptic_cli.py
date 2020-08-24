@@ -1,10 +1,11 @@
 import argparse
 import sys
 from os.path import join as j
-from stanza.coptic import train, test, _hyperparam_search
+from stanza.coptic import train, test, Predictor, _hyperparam_search
 
 
-def main(mode):
+def main(args):
+    mode = args.mode
     if mode == 'train':
         train(
             j("stanza/coptic_data", "scriptorium", "cs-ud-train-and-dev.conllu"),
@@ -16,13 +17,17 @@ def main(mode):
         # )
     elif mode == 'test':
         test(j("stanza/coptic_data", "scriptorium", "cs-ud-test.conllu"))
+    elif mode == 'predict':
+        p = Predictor()
+        print(p.predict(args.pred_file))
     else:
         _hyperparam_search()
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=['hyperopt', 'train', 'test'])
+    ap.add_argument("mode", choices=['hyperopt', 'train', 'test', 'predict'])
+    ap.add_argument("--pred-file", type=str)
     args = ap.parse_args()
     sys.argv.pop()
-    main(args.mode)
+    main(args)
