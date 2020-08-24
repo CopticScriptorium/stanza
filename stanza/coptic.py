@@ -259,7 +259,7 @@ def read_conllu_arg(conllu_filepath_or_string, gold=False, predict=False):
     return tempf.name
 
 
-def train(train, test, save_name=None):
+def train(train, dev, save_name=None):
     """Train a new stanza model.
 
     :param train: either a conllu string or a path to a conllu file
@@ -269,8 +269,8 @@ def train(train, test, save_name=None):
     args = DEFAULT_PARAMS.copy()
     args['mode'] = 'train'
     args['train_file'] = read_conllu_arg(train)
-    args['eval_file'] = read_conllu_arg(test)
-    args['gold_file'] = read_conllu_arg(test, gold=True)
+    args['eval_file'] = read_conllu_arg(dev)
+    args['gold_file'] = read_conllu_arg(dev, gold=True)
     if save_name:
         args['save_name'] = save_name
     parser.train(args)
