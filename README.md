@@ -10,11 +10,18 @@ In this repository:
 python coptic_cli.py train
 # model will appear under `stanza_models/`
 ```
-### Using a model
+Or from your own code:
+```python 
+from stanza.coptic import train
+train('/path/to/train.conllu', '/path/to/dev.conllu')
+```
+
+### Use a model
 **NOTE**: You **must** make sure the parameters you use in production **exactly match** the parameters you used during 
 training. Failing to do so will likely degrade performance. 
 
-1. Move `stanza_models/` to your production working directory. 
+1. Download [`saved_models.tar.gz`](https://github.com/CopticScriptorium/stanza/tree/master/saved_models.tar.gz) 
+and unpack it in your production working directory. 
 2. `pip install --upgrade git+git://github.com/CopticScriptorium/stanza.git#egg=stanza`
 3. Use the functions `train`, `test`, and `Predictor.predict` from `stanza.coptic`. These functions will accept 
 **either** a conllu string or a filepath to a valid conllu file:
@@ -45,7 +52,18 @@ training. Failing to do so will likely degrade performance.
 
 ### Keeping this fork up to date
 
-Use `git pull upstream master` to get updates from `stanfordnlp/stanza`. Watch out for breaking changes--our custom code here was developed against stanza==1.1.1.
+#### With Stanza
+Use GitHub's [compare changes](https://github.com/CopticScriptorium/stanza/compare/master...stanfordnlp:master) interface
+to generate a pull request from `stanfordnlp/stanza` to `copticscriptorium/stanza`.
+
+Watch out for breaking changes--our custom code here was developed against `stanza==1.1.1`. Parser flags may change in
+the future.
+
+#### With Coptic Scriptorium's UD and lexical data
+Update the files under `stanza/coptic_data`.
+
+#### Training a new model
+Train the model, make sure your new parameter settings are committed to `stanza/coptic.py`, and update `saved_models.tar.gz`.
 
 <hr>
 
