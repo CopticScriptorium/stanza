@@ -11,6 +11,9 @@ python coptic_cli.py train
 # model will appear under `stanza_models/`
 ```
 ### Using a model
+**NOTE**: You **must** make sure the parameters you use in production **exactly match** the parameters you used during 
+training. Failing to do so will likely degrade performance. 
+
 1. Move `stanza_models/` to your production working directory. 
 2. `pip install --upgrade git+git://github.com/CopticScriptorium/stanza.git#egg=stanza`
 3. Use the functions `train`, `test`, and `Predictor.predict` from `stanza.coptic`. These functions will accept 
