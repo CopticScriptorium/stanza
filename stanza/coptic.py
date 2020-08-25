@@ -68,12 +68,12 @@ DEFAULT_PARSER_ARGS = {
     # training
     'sample_train': 1.0,
     'optim': 'adam',
-    'lr': 0.001,
+    'lr': 0.002,
     'beta2': 0.95,
-    'max_steps': 10000,
+    'max_steps': 20000,
     'eval_interval': 100,
     'max_steps_before_stop': 2000,
-    'batch_size': 1000,
+    'batch_size': 1500,
     'max_grad_norm': 1.0,
     'log_step': 20,
 
@@ -88,10 +88,16 @@ DEFAULT_PARSER_ARGS = {
 # Params for controlling the custom features we're feeding the network
 FEATURE_CONFIG = {
     # BIOLU or BIO
-    'entity_encoding_scheme': 'BIOLU',
-    'entity_dropout': 0.15,
+    'features': [
+        'foreign_word',
+        'morph_count',
+        'left_morph',
+        'entity',
+    ],
+    'foreign_word_binary': True,
     'morph_count_binary': False,
-    'foreign_word_binary': False
+    'entity_encoding_scheme': 'BIOLU',
+    'entity_dropout': 0.30,
 }
 
 # DepEdit preprocessor which removes gold morph data and makes a few other tweaks
@@ -116,11 +122,13 @@ def _add_entity_feature(feature_config, sentences, predict=False):
     # unless we're predicting, use dropout to pretend we don't know some entities
     dropout_entities = {
         estr: etype for estr, etype in KNOWN_ENTITIES.items()
-        # if we're predicting, do not apply any dropout. otherwise, dropout if we
-        # roll the dice below the threshold and the entity has more than one piece
-        # (single-token entities should be pretty reliable)
-        if (predict or
-            (random.random() <= feature_config['entity_dropout'] and ' ' in estr))
+        # three ways for an entity to not get dropped out:
+        # 1. we're predicting (all tokens stay)
+        # 2. it has only one token
+        # 3. we roll above the dropout threshold
+        if (predict
+            or (' ' not in estr)
+            or (random.random() >= feature_config['entity_dropout']))
     }
 
     def find_span_matches(tokens, pattern):
@@ -189,7 +197,7 @@ def _add_entity_feature(feature_config, sentences, predict=False):
             token['feats']['Entity'] = entity_tag
 
 
-def _add_morph_count_feature(feature_config, sentences):
+def _add_morph_count_feature(feature_config, sentences, predict=False):
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
@@ -206,7 +214,7 @@ def _add_morph_count_feature(feature_config, sentences):
     return sentences
 
 
-def _add_left_morph_feature(feature_config, sentences):
+def _add_left_morph_feature(feature_config, sentences, predict=False):
     for sentence in sentences:
         for token in sentence:
             feats = token['feats']
@@ -217,7 +225,7 @@ def _add_left_morph_feature(feature_config, sentences):
     return sentences
 
 
-def _add_foreign_word_feature(feature_config, sentences):
+def _add_foreign_word_feature(feature_config, sentences, predict=False):
     def foreign_word_lookup(lemma):
         if lemma in FW_CACHE:
             return FW_CACHE[lemma]
@@ -255,6 +263,14 @@ def _add_foreign_word_feature(feature_config, sentences):
     return sentences
 
 
+FEATURE_FUNCTIONS = {
+    'foreign_word': _add_foreign_word_feature,
+    'left_morph': _add_left_morph_feature,
+    'morph_count': _add_morph_count_feature,
+    'entity': _add_entity_feature,
+}
+
+
 def _preprocess(feature_config, conllu_string, predict):
     # remove gold information
     s = PREPROCESSOR.run_depedit(conllu_string)
@@ -265,10 +281,9 @@ def _preprocess(feature_config, conllu_string, predict):
         for token in sentence:
             if token['feats'] is None:
                 token['feats'] = OrderedDict()
-    _add_foreign_word_feature(feature_config, sentences)
-    _add_left_morph_feature(feature_config, sentences)
-    _add_morph_count_feature(feature_config, sentences)
-    _add_entity_feature(feature_config, sentences, predict=predict)
+    for feature_name in feature_config['features']:
+        assert feature_name in FEATURE_FUNCTIONS.keys()
+        FEATURE_FUNCTIONS[feature_name](feature_config, sentences, predict=predict)
 
     # serialize and return
     return "".join([sentence.serialize() for sentence in sentences])
