@@ -382,16 +382,15 @@ class Predictor:
             self.loaded_args,
             self.pretrain,
             vocab=self.vocab,
-            evaluation=False
+            evaluation=True,
+            sort_during_eval=True
         )
 
+        preds = []
         if len(batch) > 0:
-            preds = []
             for i, b in enumerate(batch):
                 preds += self.trainer.predict(b)
-        else:
-            # skip eval if dev data does not exist
-            preds = []
+        preds = utils.unsort(preds, batch.data_orig_idx)
         batch.doc.set([HEAD, DEPREL], [y for x in preds for y in x])
 
         doc_conll = CoNLL.convert_dict(batch.doc.to_dict())
