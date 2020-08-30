@@ -105,13 +105,13 @@ PREPROCESSOR = depedit.DepEdit(config_file=j(PACKAGE_BASE_DIR, "coptic_data", "d
                                options=type('', (), {"quiet": True, "kill": "both"}))
 
 # Load a lexicon of foreign words and initialize a lemma cache
-with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'lang_lexicon.tab'), 'r') as f:
+with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'lang_lexicon.tab'), 'r', encoding="utf8") as f:
     FOREIGN_WORDS = {x.split('\t')[0]: x.split('\t')[1].rstrip()
                      for x in f.readlines() if '\t' in x}
 FW_CACHE = {}
 
 # load known entities and sort in order of increasing token length
-with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'entities.tab'), 'r') as f:
+with open(j(PACKAGE_BASE_DIR, 'coptic_data', 'entities.tab'), 'r', encoding="utf8") as f:
     KNOWN_ENTITIES = OrderedDict(sorted(
         ((x.split('\t')[0], x.split('\t')[1]) for x in f.readlines()),
         key=lambda x: len(x[0].split(" "))
@@ -295,7 +295,7 @@ def _read_conllu_arg(conllu_filepath_or_string, feature_config, gold=False, pred
         s = conllu_filepath_or_string
     except:
         try:
-            with open(conllu_filepath_or_string, 'r') as f:
+            with open(conllu_filepath_or_string, 'r', encoding="utf8") as f:
                 s = f.read()
                 conllu.parse(s)
         except:

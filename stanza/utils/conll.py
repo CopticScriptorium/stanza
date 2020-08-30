@@ -93,7 +93,7 @@ class CoNLL:
         if input_str:
             infile = io.StringIO(input_str)
         else:
-            infile = open(input_file)
+            infile = open(input_file, encoding="utf8")
         doc_conll = CoNLL.load_conll(infile, ignore_gapping)
         doc_dict = CoNLL.convert_conll(doc_conll)
         return doc_dict

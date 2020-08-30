@@ -19,7 +19,7 @@ def main(args):
         test(j("stanza/coptic_data", "scriptorium", "cs-ud-test.conllu"))
     elif mode == 'predict':
         p = Predictor()
-        print(p.predict(args.pred_file))
+        sys.stdout.buffer.write(p.predict(args.pred_file).encode("utf8"))
     else:
         _hyperparam_search()
 
