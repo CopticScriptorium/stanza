@@ -1,6 +1,5 @@
 import argparse
-import random
-import sys
+import random, os
 from os.path import join as j
 from collections import OrderedDict
 import conllu
@@ -32,7 +31,7 @@ DEFAULT_PARSER_ARGS = {
     'seed': 1234,
     'cuda': torch.cuda.is_available(),
     'cpu': not torch.cuda.is_available(),
-    'save_dir': j('stanza_models'),
+    'save_dir': j(PACKAGE_BASE_DIR, "..", 'stanza_models'),
     'save_name': None,
 
     # word embeddings
